@@ -136,6 +136,18 @@ func (b *NetworkManagerBackend) startSignalPump() error {
 		}
 	}
 
+	for _, info := range b.cellularDevices {
+		if err := conn.AddMatchSignal(
+			dbus.WithMatchObjectPath(dbus.ObjectPath(info.device.GetPath())),
+			dbus.WithMatchInterface(dbusPropsInterface),
+			dbus.WithMatchMember("PropertiesChanged"),
+		); err != nil {
+			conn.RemoveSignal(signals)
+			conn.Close()
+			return err
+		}
+	}
+
 	b.sigWG.Add(1)
 	go func() {
 		defer b.sigWG.Done()
@@ -210,6 +222,14 @@ func (b *NetworkManagerBackend) stopSignalPump() {
 		)
 	}
 
+	for _, info := range b.cellularDevices {
+		b.dbusConn.RemoveMatchSignal(
+			dbus.WithMatchObjectPath(dbus.ObjectPath(info.device.GetPath())),
+			dbus.WithMatchInterface(dbusPropsInterface),
+			dbus.WithMatchMember("PropertiesChanged"),
+		)
+	}
+
 	if b.signals != nil {
 		b.dbusConn.RemoveSignal(b.signals)
 		close(b.signals)
@@ -228,6 +248,7 @@ func (b *NetworkManagerBackend) handleDBusSignal(sig *dbus.Signal) {
 		if err := b.updateSavedWiFiNetworks(); err != nil {
 			b.updateWiFiNetworks()
 		}
+		b.listCellularConnections()
 		if b.onStateChange != nil {
 			b.onStateChange()
 		}
@@ -299,6 +320,11 @@ func (b *NetworkManagerBackend) handleNetworkManagerChange(changes map[string]db
 				b.stateMutex.Unlock()
 				needsUpdate = true
 			}
+		case "WwanEnabled", "WwanHardwareEnabled":
+			b.updateCellularRadioState()
+			b.updateAllCellularDevices()
+			b.updateCellularState()
+			needsUpdate = true
 		default:
 			continue
 		}
@@ -309,6 +335,7 @@ func (b *NetworkManagerBackend) handleNetworkManagerChange(changes map[string]db
 		if _, exists := changes["State"]; exists {
 			b.updateEthernetState()
 			b.updateWiFiState()
+			b.updateCellularState()
 		}
 		if _, exists := changes["ActiveConnections"]; exists {
 			b.updateVPNConnectionState()
@@ -354,10 +381,13 @@ func (b *NetworkManagerBackend) handleDeviceChange(devicePath dbus.ObjectPath, c
 
 	b.updateAllEthernetDevices()
 	b.updateEthernetState()
+	b.updateAllCellularDevices()
+	b.updateCellularState()
 	b.updateAllWiFiDevices()
 	b.updateWiFiState()
 	if stateChanged {
 		b.listEthernetConnections()
+		b.listCellularConnections()
 		b.updatePrimaryConnection()
 	}
 	if b.onStateChange != nil {
@@ -452,7 +482,7 @@ func (b *NetworkManagerBackend) handleDeviceAdded(devicePath dbus.ObjectPath) {
 		return
 	}
 
-	if devType != gonetworkmanager.NmDeviceTypeEthernet && devType != gonetworkmanager.NmDeviceTypeWifi {
+	if devType != gonetworkmanager.NmDeviceTypeEthernet && devType != gonetworkmanager.NmDeviceTypeWifi && devType != gonetworkmanager.NmDeviceTypeModem {
 		return
 	}
 
@@ -496,6 +526,34 @@ func (b *NetworkManagerBackend) handleDeviceAdded(devicePath dbus.ObjectPath) {
 		b.updateAllEthernetDevices()
 		b.updateEthernetState()
 		b.listEthernetConnections()
+		b.updatePrimaryConnection()
+
+	case gonetworkmanager.NmDeviceTypeModem:
+		g, _ := gonetworkmanager.NewDeviceGeneric(devicePath)
+		hwAddr := ""
+		description := "Mobile broadband"
+		if g != nil {
+			hwAddr, _ = g.GetPropertyHwAddress()
+			if desc, err := g.GetPropertyTypeDescription(); err == nil && desc != "" {
+				description = desc
+			}
+		}
+
+		b.cellularDevices[iface] = &cellularDeviceInfo{
+			device:      dev,
+			generic:     g,
+			name:        iface,
+			hwAddress:   hwAddr,
+			description: description,
+		}
+
+		if b.cellularDevice == nil {
+			b.cellularDevice = dev
+		}
+
+		b.updateAllCellularDevices()
+		b.updateCellularState()
+		b.listCellularConnections()
 		b.updatePrimaryConnection()
 
 	case gonetworkmanager.NmDeviceTypeWifi:
@@ -581,6 +639,33 @@ func (b *NetworkManagerBackend) handleDeviceRemoved(devicePath dbus.ObjectPath) 
 
 			b.updateAllWiFiDevices()
 			b.updateWiFiState()
+
+			if b.onStateChange != nil {
+				b.onStateChange()
+			}
+			return
+		}
+	}
+
+	for iface, info := range b.cellularDevices {
+		if info.device.GetPath() == devicePath {
+			delete(b.cellularDevices, iface)
+
+			if b.cellularDevice != nil {
+				dev := b.cellularDevice.(gonetworkmanager.Device)
+				if dev.GetPath() == devicePath {
+					b.cellularDevice = nil
+					for _, remaining := range b.cellularDevices {
+						b.cellularDevice = remaining.device
+						break
+					}
+				}
+			}
+
+			b.updateAllCellularDevices()
+			b.updateCellularState()
+			b.listCellularConnections()
+			b.updatePrimaryConnection()
 
 			if b.onStateChange != nil {
 				b.onStateChange()

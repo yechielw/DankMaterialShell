@@ -38,7 +38,7 @@ import (
 	"github.com/AvengeMedia/DankMaterialShell/core/pkg/syncmap"
 )
 
-const APIVersion = 26
+const APIVersion = 27
 
 var CLIVersion = "dev"
 
