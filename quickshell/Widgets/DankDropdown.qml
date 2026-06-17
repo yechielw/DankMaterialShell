@@ -161,19 +161,14 @@ Item {
             anchors.rightMargin: Theme.spacingS
             spacing: Theme.spacingS
 
-            Rectangle {
+            DankColorSwatch {
                 id: triggerSwatch
-
-                property var swatchColor: root.optionColorMap[root.currentValue]
 
                 width: 16
                 height: 16
-                radius: 8
-                color: swatchColor !== undefined ? swatchColor : "transparent"
-                border.color: Theme.outline
-                border.width: 1
                 anchors.verticalCenter: parent.verticalCenter
-                visible: swatchColor !== undefined
+                visible: root.optionColorMap[root.currentValue] !== undefined
+                swatchColor: visible ? root.optionColorMap[root.currentValue] : "transparent"
             }
 
             DankIcon {
@@ -288,6 +283,40 @@ Item {
         modal: true
         dim: false
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+        enter: Transition {
+            NumberAnimation {
+                property: "scale"
+                from: 0.9
+                to: 1
+                duration: Theme.shortDuration
+                easing.type: Theme.emphasizedEasing
+            }
+            NumberAnimation {
+                property: "opacity"
+                from: 0
+                to: 1
+                duration: Theme.shortDuration
+                easing.type: Theme.standardEasing
+            }
+        }
+
+        exit: Transition {
+            NumberAnimation {
+                property: "scale"
+                from: 1
+                to: 0.9
+                duration: Theme.shortDuration
+                easing.type: Theme.emphasizedEasing
+            }
+            NumberAnimation {
+                property: "opacity"
+                from: 1
+                to: 0
+                duration: Theme.shortDuration
+                easing.type: Theme.standardEasing
+            }
+        }
 
         background: Rectangle {
             color: "transparent"
@@ -439,17 +468,15 @@ Item {
                             anchors.verticalCenter: parent.verticalCenter
                             spacing: Theme.spacingS
 
-                            Rectangle {
+                            DankColorSwatch {
                                 id: optionSwatch
 
                                 width: 16
                                 height: 16
-                                radius: 8
-                                color: delegateRoot.swatchColor !== undefined ? delegateRoot.swatchColor : "transparent"
-                                border.color: delegateRoot.isCurrentValue ? Theme.primary : Theme.outline
-                                border.width: 1
                                 anchors.verticalCenter: parent.verticalCenter
                                 visible: delegateRoot.swatchColor !== undefined
+                                swatchColor: visible ? delegateRoot.swatchColor : "transparent"
+                                ringColor: delegateRoot.isCurrentValue ? Theme.primary : Theme.outline
                             }
 
                             DankIcon {
